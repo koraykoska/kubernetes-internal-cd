@@ -1,0 +1,12 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: volkn-kube-cd
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: volkn-kube-cd
+subjects:
+  - kind: ServiceAccount
+    name: volkn-kube-cd
+    namespace: kube-system

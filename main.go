@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"github.com/google/logger"
 	"io/ioutil"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -104,12 +105,12 @@ var kubeSet *kubernetes.Clientset
 
 func Webhook(w http.ResponseWriter, r *http.Request) {
 	if r.URL.Path != "/" || r.Method != "POST" {
-		globalLogger.Warning("%s %s from %s", r.Method, r.URL.Path, r.Host)
+		globalLogger.Warning(r.Method, " ", r.URL.Path, " from ", r.Host)
 		http.NotFound(w, r)
 		return
 	}
 
-	globalLogger.Info("%s %s from %s", r.Method, r.URL.Path, r.Host)
+	globalLogger.Info(r.Method, " ", r.URL.Path, " from ", r.Host)
 
 	// Read body
 	bytes, err := ioutil.ReadAll(r.Body)
@@ -136,17 +137,17 @@ func Webhook(w http.ResponseWriter, r *http.Request) {
 	w.Write(output)
 
 	// Deploy new version if possible
-	globalLogger.Info("Deploying new version of %s on branch %s. Cloud Build ID: %s", body.Source.RepoSource.RepoName, body.Source.RepoSource.BranchName, body.Id)
+	globalLogger.Info(fmt.Sprintf("Deploying new version of %s on branch %s. Cloud Build ID: %s", body.Source.RepoSource.RepoName, body.Source.RepoSource.BranchName, body.Id))
 
 	deployments, err := kubeSet.ExtensionsV1beta1().Deployments("").List(metav1.ListOptions{LabelSelector: "kube.volkn.cloud/cloud-build-cd-name"})
 	if err != nil {
 		panic(err.Error())
 	}
-	globalLogger.Info("Got %d deployments with the correct cd label", len(deployments.Items))
+	globalLogger.Info(fmt.Sprintf("Got %d deployments with the correct cd label", len(deployments.Items)))
 
 	for _, deployment := range deployments.Items {
 		if deployment.Labels["kube.volkn.cloud/cloud-build-cd-name"] == body.Source.RepoSource.RepoName {
-			globalLogger.Info("Deployment %s in namespace %s is ready to be updated...", deployment.Name, deployment.Namespace)
+			globalLogger.Info(fmt.Sprintf("Deployment %s in namespace %s is ready to be updated...", deployment.Name, deployment.Namespace))
 		}
 	}
 }
@@ -176,7 +177,7 @@ func main() {
 	globalLogger.Info("Server listening on port " + port)
 
 	http.HandleFunc("/", Webhook)
-	if err := http.ListenAndServe(":8080", nil); err != nil {
+	if err := http.ListenAndServe(":" + port, nil); err != nil {
 		panic(err)
 	}
 }
