@@ -1,16 +1,17 @@
 package main
 
 import (
-  "net/http"
-  "fmt"
-  "os"
   "encoding/json"
+  "fmt"
   "io/ioutil"
+  "net/http"
+  "os"
+  "time"
 
   "k8s.io/apimachinery/pkg/api/errors"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/client-go/kubernetes"
-	"k8s.io/client-go/rest"
+  metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+  "k8s.io/client-go/kubernetes"
+  "k8s.io/client-go/rest"
 )
 
 type MessageRepoSource struct {
@@ -74,8 +75,8 @@ type MessageGeneralTiming struct {
 }
 
 type Message struct {
-	Id               string                  `json:"id"`
-	ProjectId        string                  `json:"projectId"`
+  Id               string                  `json:"id"`
+  ProjectId        string                  `json:"projectId"`
   Status           string                  `json:"status"`
   Source           MessageSource           `json:"source"`
   Steps            []MessageStep           `json:"steps"`
@@ -100,6 +101,9 @@ type ResponseMessage struct {
   Message string `json:"message"`
 }
 
+// GLOBAL VARIABLES
+var kubeSet *kubernetes.Clientset
+
 func Webhook(w http.ResponseWriter, r *http.Request) {
   if r.URL.Path != "/" || r.Method != "POST" {
     fmt.Println(r.URL.Path)
@@ -108,37 +112,64 @@ func Webhook(w http.ResponseWriter, r *http.Request) {
     return
   }
 
+  fmt.Println("Got new POST request to /")
+
   // Read body
-	bytes, err := ioutil.ReadAll(r.Body)
-	defer r.Body.Close()
-	if err != nil {
-		http.Error(w, err.Error(), 500)
-		return
-	}
+  bytes, err := ioutil.ReadAll(r.Body)
+  defer r.Body.Close()
+  if err != nil {
+    http.Error(w, err.Error(), 500)
+    return
+  }
 
 
   var body Message
   if err = json.Unmarshal(bytes, &body); err != nil {
     http.Error(w, err.Error(), 500)
-		return
+    return
   }
 
+  // Respond as early as possible to the webhook
   message := ResponseMessage{ Success: true, Message: "Sucessfully parsed " + body.Source.RepoSource.RepoName }
   output, err := json.Marshal(message)
-	if err != nil {
-		http.Error(w, err.Error(), 500)
-		return
-	}
+    if err != nil {
+      http.Error(w, err.Error(), 500)
+      return
+    }
   w.Header().Set("content-type", "application/json")
   w.Write(output)
+
+  // Deploy new version if possible
+  fmt.Println("Deploying new version of %s on branch %s. Cloud Build ID: %s", body.Source.RepoSource.RepoName, body.Source.RepoSource.BranchName, body.Id)
+
+  deployments, err := kubeSet.ExtensionsV1beta1().Deployments("").List(metav1.ListOptions{ LabelSelector: "kube.volkn.cloud/cloud-build-cd-name" })
+  if err != nil {
+    panic(err.Error())
+  }
+  fmt.Println("Got %d deployments with the correct cd label", len(deployments.Items))
+
+  for _, deployment := range deployments.Items {
+    if deployment.Labels["kube.volkn.cloud/cloud-build-cd-name"] == body.Source.RepoSource.RepoName {
+      fmt.Println("Deployment %s in namespace %s is ready to be updated...", deployment.Name, deployment.Namespace)
+    }
+  }
 }
 
 func main() {
   // Setup kube cluster config
   config, err := rest.InClusterConfig()
   if err != nil {
-		panic(err.Error())
-	}
+    panic(err.Error())
+  }
+  fmt.Println(config)
+  // creates the clientset
+  clientset, err := kubernetes.NewForConfig(config)
+  if err != nil {
+    panic(err.Error())
+  }
+
+  // Set global kubeSet
+  kubeSet = clientset
 
   var port string = os.Getenv("PORT")
   if port == "" {
