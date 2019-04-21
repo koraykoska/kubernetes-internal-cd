@@ -1,184 +1,182 @@
 package main
 
 import (
-  "encoding/json"
-  "fmt"
-  "io/ioutil"
-  "net/http"
-  "os"
-  "time"
-
-  "k8s.io/apimachinery/pkg/api/errors"
-  metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-  "k8s.io/client-go/kubernetes"
-  "k8s.io/client-go/rest"
+	"encoding/json"
+	"github.com/google/logger"
+	"io/ioutil"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/rest"
+	"net/http"
+	"os"
 )
 
 type MessageRepoSource struct {
-  ProjectId  string `json:"projectId"`
-  RepoName   string `json:"repoName"`
-  BranchName string `json:"branchName"`
+	ProjectId  string `json:"projectId"`
+	RepoName   string `json:"repoName"`
+	BranchName string `json:"branchName"`
 }
 
 type MessageSource struct {
-  RepoSource MessageRepoSource `json:"repoSource"`
+	RepoSource MessageRepoSource `json:"repoSource"`
 }
 
 type MessageTiming struct {
-  StartTime string `json:"startTime"`
-  EndTime   string `json:"endTime"`
+	StartTime string `json:"startTime"`
+	EndTime   string `json:"endTime"`
 }
 
 type MessageStep struct {
-  Name       string        `json:"name"`
-  Args       []string      `json:"args"`
-  Timing     MessageTiming `json:"timing"`
-  PullTiming MessageTiming `json:"pullTiming"`
-  Status     string        `json:"status"`
+	Name       string        `json:"name"`
+	Args       []string      `json:"args"`
+	Timing     MessageTiming `json:"timing"`
+	PullTiming MessageTiming `json:"pullTiming"`
+	Status     string        `json:"status"`
 }
 
 type MessageResultsImage struct {
-  Name       string        `json:"name"`
-  Digest     string        `json:"digest"`
-  PushTiming MessageTiming `json:"pushTiming"`
+	Name       string        `json:"name"`
+	Digest     string        `json:"digest"`
+	PushTiming MessageTiming `json:"pushTiming"`
 }
 
 type MessageResults struct {
-  Images           []MessageResultsImage `json:"images"`
-  BuildStepImages  []string              `json:"buildStepImages"`
-  BuildStepOutputs []string              `json:"buildStepOutputs"`
+	Images           []MessageResultsImage `json:"images"`
+	BuildStepImages  []string              `json:"buildStepImages"`
+	BuildStepOutputs []string              `json:"buildStepOutputs"`
 }
 
 type MessageArtifacts struct {
-  Images []string `json:"images"`
+	Images []string `json:"images"`
 }
 
 type MessageResolvedRepoSource struct {
-  ProjectId string `json:"projectId"`
-  RepoName  string `json:"repoName"`
-  CommitSha string `json:"commitSha"`
+	ProjectId string `json:"projectId"`
+	RepoName  string `json:"repoName"`
+	CommitSha string `json:"commitSha"`
 }
 
 type MessageSourceProvenance struct {
-  ResolvedRepoSource MessageResolvedRepoSource `json:"resolvedRepoSource"`
+	ResolvedRepoSource MessageResolvedRepoSource `json:"resolvedRepoSource"`
 }
 
 type MessageOptions struct {
-  SubstitutionOption string `json:"substitutionOption"`
-  Logging            string `json:"logging"`
+	SubstitutionOption string `json:"substitutionOption"`
+	Logging            string `json:"logging"`
 }
 
 type MessageGeneralTiming struct {
-  Build MessageTiming `json:"BUILD"`
-  FetchSource MessageTiming `json:"FETCHSOURCE"`
-  Push MessageTiming `json:"PUSH"`
+	Build       MessageTiming `json:"BUILD"`
+	FetchSource MessageTiming `json:"FETCHSOURCE"`
+	Push        MessageTiming `json:"PUSH"`
 }
 
 type Message struct {
-  Id               string                  `json:"id"`
-  ProjectId        string                  `json:"projectId"`
-  Status           string                  `json:"status"`
-  Source           MessageSource           `json:"source"`
-  Steps            []MessageStep           `json:"steps"`
-  Results          MessageResults          `json:"results"`
-  CreateTime       string                  `json:"createTime"`
-  StartTime        string                  `json:"startTime"`
-  FinishTime       string                  `json:"finishTime"`
-  Timeout          string                  `json:"timeout"`
-  Images           []string                `json:"images"`
-  Artifacts        MessageArtifacts        `json:"artifacts"`
-  LogsBucket       string                  `json:"logsBucket"`
-  SourceProvenance MessageSourceProvenance `json:"sourceProvenance"`
-  BuildTriggerId   string                  `json:"buildTriggerId"`
-  Options          MessageOptions          `json:"options"`
-  LogUrl           string                  `json:"logUrl"`
-  Tags             []string                `json:"tags"`
-  Timing           MessageGeneralTiming    `json:"timing"`
+	Id               string                  `json:"id"`
+	ProjectId        string                  `json:"projectId"`
+	Status           string                  `json:"status"`
+	Source           MessageSource           `json:"source"`
+	Steps            []MessageStep           `json:"steps"`
+	Results          MessageResults          `json:"results"`
+	CreateTime       string                  `json:"createTime"`
+	StartTime        string                  `json:"startTime"`
+	FinishTime       string                  `json:"finishTime"`
+	Timeout          string                  `json:"timeout"`
+	Images           []string                `json:"images"`
+	Artifacts        MessageArtifacts        `json:"artifacts"`
+	LogsBucket       string                  `json:"logsBucket"`
+	SourceProvenance MessageSourceProvenance `json:"sourceProvenance"`
+	BuildTriggerId   string                  `json:"buildTriggerId"`
+	Options          MessageOptions          `json:"options"`
+	LogUrl           string                  `json:"logUrl"`
+	Tags             []string                `json:"tags"`
+	Timing           MessageGeneralTiming    `json:"timing"`
 }
 
 type ResponseMessage struct {
-  Success bool   `json:"error"`
-  Message string `json:"message"`
+	Success bool   `json:"error"`
+	Message string `json:"message"`
 }
 
 // GLOBAL VARIABLES
+var globalLogger *logger.Logger
 var kubeSet *kubernetes.Clientset
 
 func Webhook(w http.ResponseWriter, r *http.Request) {
-  if r.URL.Path != "/" || r.Method != "POST" {
-    fmt.Println(r.URL.Path)
-    fmt.Println(r.Method)
-    http.NotFound(w, r)
-    return
-  }
+	if r.URL.Path != "/" || r.Method != "POST" {
+		globalLogger.Warning("%s %s from %s", r.Method, r.URL.Path, r.Host)
+		http.NotFound(w, r)
+		return
+	}
 
-  fmt.Println("Got new POST request to /")
+	globalLogger.Info("%s %s from %s", r.Method, r.URL.Path, r.Host)
 
-  // Read body
-  bytes, err := ioutil.ReadAll(r.Body)
-  defer r.Body.Close()
-  if err != nil {
-    http.Error(w, err.Error(), 500)
-    return
-  }
+	// Read body
+	bytes, err := ioutil.ReadAll(r.Body)
+	defer r.Body.Close()
+	if err != nil {
+		http.Error(w, err.Error(), 500)
+		return
+	}
 
+	var body Message
+	if err = json.Unmarshal(bytes, &body); err != nil {
+		http.Error(w, err.Error(), 500)
+		return
+	}
 
-  var body Message
-  if err = json.Unmarshal(bytes, &body); err != nil {
-    http.Error(w, err.Error(), 500)
-    return
-  }
+	// Respond as early as possible to the webhook
+	message := ResponseMessage{Success: true, Message: "Sucessfully parsed " + body.Source.RepoSource.RepoName}
+	output, err := json.Marshal(message)
+	if err != nil {
+		http.Error(w, err.Error(), 500)
+		return
+	}
+	w.Header().Set("content-type", "application/json")
+	w.Write(output)
 
-  // Respond as early as possible to the webhook
-  message := ResponseMessage{ Success: true, Message: "Sucessfully parsed " + body.Source.RepoSource.RepoName }
-  output, err := json.Marshal(message)
-    if err != nil {
-      http.Error(w, err.Error(), 500)
-      return
-    }
-  w.Header().Set("content-type", "application/json")
-  w.Write(output)
+	// Deploy new version if possible
+	globalLogger.Info("Deploying new version of %s on branch %s. Cloud Build ID: %s", body.Source.RepoSource.RepoName, body.Source.RepoSource.BranchName, body.Id)
 
-  // Deploy new version if possible
-  fmt.Println("Deploying new version of %s on branch %s. Cloud Build ID: %s", body.Source.RepoSource.RepoName, body.Source.RepoSource.BranchName, body.Id)
+	deployments, err := kubeSet.ExtensionsV1beta1().Deployments("").List(metav1.ListOptions{LabelSelector: "kube.volkn.cloud/cloud-build-cd-name"})
+	if err != nil {
+		panic(err.Error())
+	}
+	globalLogger.Info("Got %d deployments with the correct cd label", len(deployments.Items))
 
-  deployments, err := kubeSet.ExtensionsV1beta1().Deployments("").List(metav1.ListOptions{ LabelSelector: "kube.volkn.cloud/cloud-build-cd-name" })
-  if err != nil {
-    panic(err.Error())
-  }
-  fmt.Println("Got %d deployments with the correct cd label", len(deployments.Items))
-
-  for _, deployment := range deployments.Items {
-    if deployment.Labels["kube.volkn.cloud/cloud-build-cd-name"] == body.Source.RepoSource.RepoName {
-      fmt.Println("Deployment %s in namespace %s is ready to be updated...", deployment.Name, deployment.Namespace)
-    }
-  }
+	for _, deployment := range deployments.Items {
+		if deployment.Labels["kube.volkn.cloud/cloud-build-cd-name"] == body.Source.RepoSource.RepoName {
+			globalLogger.Info("Deployment %s in namespace %s is ready to be updated...", deployment.Name, deployment.Namespace)
+		}
+	}
 }
 
 func main() {
-  // Setup kube cluster config
-  config, err := rest.InClusterConfig()
-  if err != nil {
-    panic(err.Error())
-  }
-  fmt.Println(config)
-  // creates the clientset
-  clientset, err := kubernetes.NewForConfig(config)
-  if err != nil {
-    panic(err.Error())
-  }
+	// Setup logger
+	globalLogger = logger.Init("ConsoleLogger", true, false, ioutil.Discard)
 
-  // Set global kubeSet
-  kubeSet = clientset
+	// Setup kube cluster config
+	config, err := rest.InClusterConfig()
+	if err != nil {
+		panic(err.Error())
+	}
+	// creates the clientset
+	clientset, err := kubernetes.NewForConfig(config)
+	if err != nil {
+		panic(err.Error())
+	}
 
-  var port string = os.Getenv("PORT")
-  if port == "" {
-    port = "8080"
-  }
-  fmt.Println("Server listening on port " + port)
+	// Set global kubeSet
+	kubeSet = clientset
 
-  http.HandleFunc("/", Webhook)
-  if err := http.ListenAndServe(":8080", nil); err != nil {
-    panic(err)
-  }
+	var port string = os.Getenv("PORT")
+	if port == "" {
+		port = "8080"
+	}
+	globalLogger.Info("Server listening on port " + port)
+
+	http.HandleFunc("/", Webhook)
+	if err := http.ListenAndServe(":8080", nil); err != nil {
+		panic(err)
+	}
 }
