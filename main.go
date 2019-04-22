@@ -156,6 +156,12 @@ func Webhook(w http.ResponseWriter, r *http.Request) {
 		panic(err.Error())
 	}
 	globalLogger.Info(fmt.Sprintf("Got %d deployments with the correct cd label", len(deployments2.Items)))
+
+	deployments3, err := kubeSet.AppsV1().Deployments("").List(metav1.ListOptions{})
+	if err != nil {
+		panic(err.Error())
+	}
+	globalLogger.Info(fmt.Sprintf("Got %d deployments with the correct cd label", len(deployments3.Items)))
 }
 
 func main() {
