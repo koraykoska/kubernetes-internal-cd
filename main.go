@@ -150,6 +150,12 @@ func Webhook(w http.ResponseWriter, r *http.Request) {
 			globalLogger.Info(fmt.Sprintf("Deployment %s in namespace %s is ready to be updated...", deployment.Name, deployment.Namespace))
 		}
 	}
+
+	deployments2, err := kubeSet.AppsV1().Deployments("").List(metav1.ListOptions{LabelSelector: "kube.volkn.cloud/cloud-build-cd-name=" + body.Source.RepoSource.RepoName})
+	if err != nil {
+		panic(err.Error())
+	}
+	globalLogger.Info(fmt.Sprintf("Got %d deployments with the correct cd label", len(deployments2.Items)))
 }
 
 func main() {
