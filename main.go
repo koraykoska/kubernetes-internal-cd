@@ -157,43 +157,10 @@ func Webhook(w http.ResponseWriter, r *http.Request) {
 	}
 	globalLogger.Info(fmt.Sprintf("Got %d deployments with the correct cd label", len(deployments2.Items)))
 
-	deployments3, err := kubeSet.AppsV1().Deployments("").List(metav1.ListOptions{})
-	if err != nil {
-		panic(err.Error())
-	}
-	globalLogger.Info(fmt.Sprintf("Got %d deployments with the correct cd label", len(deployments3.Items)))
-	deployments4, err := kubeSet.ExtensionsV1beta1().Deployments("").List(metav1.ListOptions{})
-	if err != nil {
-		panic(err.Error())
-	}
-	globalLogger.Info(fmt.Sprintf("Got %d deployments with the correct cd label", len(deployments4.Items)))
-
-	for _, deployment := range deployments3.Items {
-		fmt.Println("--- <DEPLOYMENT> ---")
-
-		fmt.Println("Namespace: %s", deployment.Namespace)
-		fmt.Println("Name: %s", deployment.Name)
-		fmt.Println("Labels:")
-		for key, val := range deployment.Labels {
-			s := fmt.Sprintf("%s=%s\n", key, val)
-			fmt.Println(s)
+	for _, deployment := range deployments2.Items {
+		if deployment.Labels["kube.volkn.cloud/cloud-build-cd-name"] == body.Source.RepoSource.RepoName {
+			globalLogger.Info(fmt.Sprintf("Deployment %s in namespace %s is ready to be updated...", deployment.Name, deployment.Namespace))
 		}
-		fmt.Println("--- </DEPLOYMENT> ---")
-	}
-
-	globalLogger.Info("--------------------------------")
-
-	for _, deployment := range deployments4.Items {
-		fmt.Println("--- <DEPLOYMENT> ---")
-
-		fmt.Println("Namespace: %s", deployment.Namespace)
-		fmt.Println("Name: %s", deployment.Name)
-		fmt.Println("Labels:")
-		for key, val := range deployment.Labels {
-			s := fmt.Sprintf("%s=%s\n", key, val)
-			fmt.Println(s)
-		}
-		fmt.Println("--- </DEPLOYMENT> ---")
 	}
 }
 
