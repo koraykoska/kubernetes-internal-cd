@@ -8,6 +8,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
+	"k8s.io/client-go/util/retry"
 	"net/http"
 	"os"
 )
@@ -126,6 +127,11 @@ func Webhook(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if len(body.Images) < 1 || body.Images[0] == "" {
+		http.Error(w, "cannot update without a new image tag", 400)
+		return
+	}
+
 	// Respond as early as possible to the webhook
 	message := ResponseMessage{Success: true, Message: "Sucessfully parsed " + body.Source.RepoSource.RepoName}
 	output, err := json.Marshal(message)
@@ -139,7 +145,7 @@ func Webhook(w http.ResponseWriter, r *http.Request) {
 	// Deploy new version if possible
 	globalLogger.Info(fmt.Sprintf("Deploying new version of %s on branch %s. Cloud Build ID: %s", body.Source.RepoSource.RepoName, body.Source.RepoSource.BranchName, body.Id))
 
-	deployments, err := kubeSet.ExtensionsV1beta1().Deployments("").List(metav1.ListOptions{LabelSelector: "kube.volkn.cloud/cloud-build-cd-name == " + body.Source.RepoSource.RepoName})
+	deployments, err := kubeSet.AppsV1().Deployments("").List(metav1.ListOptions{LabelSelector: "kube.volkn.cloud/cloud-build-cd-name == " + body.Source.RepoSource.RepoName})
 	if err != nil {
 		panic(err.Error())
 	}
@@ -148,18 +154,24 @@ func Webhook(w http.ResponseWriter, r *http.Request) {
 	for _, deployment := range deployments.Items {
 		if deployment.Labels["kube.volkn.cloud/cloud-build-cd-name"] == body.Source.RepoSource.RepoName {
 			globalLogger.Info(fmt.Sprintf("Deployment %s in namespace %s is ready to be updated...", deployment.Name, deployment.Namespace))
-		}
-	}
 
-	deployments2, err := kubeSet.AppsV1().Deployments("").List(metav1.ListOptions{LabelSelector: "kube.volkn.cloud/cloud-build-cd-name == " + body.Source.RepoSource.RepoName})
-	if err != nil {
-		panic(err.Error())
-	}
-	globalLogger.Info(fmt.Sprintf("Got %d deployments with the correct cd label", len(deployments2.Items)))
+			retryErr := retry.RetryOnConflict(retry.DefaultRetry, func() error {
+				// Retrieve the latest version of Deployment before attempting update
+				result, getErr := kubeSet.AppsV1().Deployments(deployment.Namespace).Get(deployment.Name, metav1.GetOptions{})
+				if getErr != nil {
+					return getErr
+				}
 
-	for _, deployment := range deployments2.Items {
-		if deployment.Labels["kube.volkn.cloud/cloud-build-cd-name"] == body.Source.RepoSource.RepoName {
-			globalLogger.Info(fmt.Sprintf("Deployment %s in namespace %s is ready to be updated...", deployment.Name, deployment.Namespace))
+				result.Spec.Template.Spec.Containers[0].Image = body.Images[0]
+				_, updateErr := kubeSet.AppsV1().Deployments(deployment.Namespace).Update(result)
+
+				return updateErr
+			})
+			if retryErr != nil {
+				globalLogger.Error(fmt.Sprintf("Failure updating deployment %s. Cannot retry.", deployment.Name))
+			}
+
+			globalLogger.Info(fmt.Sprintf("Successfully updated deployment %s with the newest image tag.", deployment.Name))
 		}
 	}
 }
