@@ -167,6 +167,20 @@ func Webhook(w http.ResponseWriter, r *http.Request) {
 		panic(err.Error())
 	}
 	globalLogger.Info(fmt.Sprintf("Got %d deployments with the correct cd label", len(deployments4.Items)))
+
+	for _, deployment := range deployments3.Items {
+		if deployment.Labels["kube.volkn.cloud/cloud-build-cd-name"] == body.Source.RepoSource.RepoName {
+			globalLogger.Info(fmt.Sprintf("Deployment %s in namespace %s is ready to be updated...", deployment.Name, deployment.Namespace))
+		}
+	}
+
+	globalLogger.Info("----")
+
+	for _, deployment := range deployments4.Items {
+		if deployment.Labels["kube.volkn.cloud/cloud-build-cd-name"] == body.Source.RepoSource.RepoName {
+			globalLogger.Info(fmt.Sprintf("Deployment %s in namespace %s is ready to be updated...", deployment.Name, deployment.Namespace))
+		}
+	}
 }
 
 func main() {
