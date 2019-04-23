@@ -15,6 +15,7 @@ import (
 	"k8s.io/client-go/util/retry"
 	"net/http"
 	"os"
+	"strings"
 )
 
 type MessageRepoSource struct {
@@ -169,7 +170,7 @@ func Webhook(w http.ResponseWriter, r *http.Request) {
 	// Deploy new version if possible
 	globalLogger.Info(fmt.Sprintf("Deploying new version of %s on branch %s. Cloud Build ID: %s", body.Source.RepoSource.RepoName, body.Source.RepoSource.BranchName, body.Id))
 
-	deployments, err := kubeSet.AppsV1().Deployments("").List(metav1.ListOptions{LabelSelector: "kube.volkn.cloud/cloud-build-cd-name == " + body.Source.RepoSource.RepoName})
+	deployments, err := kubeSet.AppsV1().Deployments("").List(metav1.ListOptions{LabelSelector: "kube.volkn.cloud/cloud-build-cd-name == " + strings.ToLower(body.Source.RepoSource.RepoName)})
 	if err != nil {
 		panic(err.Error())
 	}
