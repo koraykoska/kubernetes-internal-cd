@@ -1,6 +1,10 @@
 package main
 
 import (
+	"crypto/hmac"
+	"crypto/sha1"
+	"crypto/subtle"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"github.com/google/logger"
@@ -101,23 +105,43 @@ type ResponseMessage struct {
 }
 
 // GLOBAL VARIABLES
+var hmacSecret string
 var globalLogger *logger.Logger
 var kubeSet *kubernetes.Clientset
 
+/// HMAC signature generation
+func CreateSignature(input []byte, key string) string {
+	signatureKey := []byte(key)
+
+	h := hmac.New(sha1.New, signatureKey)
+	h.Write(input)
+
+	return "sha1=" + hex.EncodeToString(h.Sum(nil))
+}
+
 func Webhook(w http.ResponseWriter, r *http.Request) {
 	if r.URL.Path != "/" || r.Method != "POST" {
-		globalLogger.Warning(r.Method, " ", r.URL.Path, " from ", r.Host)
+		globalLogger.Warning(r.Method, " ", r.URL.Path, " from ", r.RemoteAddr)
 		http.NotFound(w, r)
 		return
 	}
 
-	globalLogger.Info(r.Method, " ", r.URL.Path, " from ", r.Host)
+	globalLogger.Info(r.Method, " ", r.URL.Path, " from ", r.RemoteAddr)
 
 	// Read body
 	bytes, err := ioutil.ReadAll(r.Body)
 	defer r.Body.Close()
 	if err != nil {
 		http.Error(w, err.Error(), 500)
+		return
+	}
+
+	// Check hmac signature
+	signature := CreateSignature(bytes, hmacSecret)
+	if subtle.ConstantTimeCompare([]byte(r.Header.Get("x-hub-signature")), []byte(signature)) != 1 {
+		globalLogger.Warning("Signature verification failed for host " + r.RemoteAddr)
+
+		http.Error(w, "hmac signature verification failed", 401)
 		return
 	}
 
@@ -179,6 +203,13 @@ func Webhook(w http.ResponseWriter, r *http.Request) {
 func main() {
 	// Setup logger
 	globalLogger = logger.Init("ConsoleLogger", true, false, ioutil.Discard)
+
+	// Get hmac secret
+	hmacSecret = os.Getenv("HMAC_SECRET")
+	if hmacSecret == "" || len(hmacSecret) < 32 {
+		globalLogger.Fatal("HMAC secret empty or too weak. Please change it accordingly.")
+		panic("HMAC secret too weak")
+	}
 
 	// Setup kube cluster config
 	config, err := rest.InClusterConfig()
