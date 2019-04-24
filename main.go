@@ -15,6 +15,7 @@ import (
 	"k8s.io/client-go/util/retry"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
 )
 
@@ -105,11 +106,6 @@ type ResponseMessage struct {
 	Message string `json:"message"`
 }
 
-type DeploymentLabelValue struct {
-	BranchName        string `json:"branchName"`
-	ContainerPosition int    `json:"containerPosition"`
-}
-
 // GLOBAL VARIABLES
 var hmacSecret string
 var globalLogger *logger.Logger
@@ -185,13 +181,20 @@ func Webhook(w http.ResponseWriter, r *http.Request) {
 	for _, deployment := range deployments.Items {
 		labelValue := deployment.Labels[labelKey]
 
-		// Convert label value to DeploymentLabelValue
-		var labelValueType DeploymentLabelValue
-		if err = json.Unmarshal([]byte(labelValue), &labelValueType); err != nil {
-			globalLogger.Warning("Label value for deployment " + deployment.Name + " in namespace " + deployment.Namespace + " is malformed. Skipping the deployment...")
+		// Convert label value to DeploymentLabelValue. Currently <branchName>.<containerPosition>
+		labelValues := strings.Split(labelValue, ".")
+		if len(labelValues) != 2 {
+			globalLogger.Warning("Label value for deployment " + deployment.Name + " in namespace " + deployment.Namespace + " is malformed. Exactly two dot separated values are required. Skipping the deployment...")
 			continue
 		}
-		if labelValueType.BranchName != body.Source.RepoSource.BranchName {
+		labelBranchName := labelValues[0]
+		labelContainerPosition, err := strconv.Atoi(labelValues[1])
+		if err != nil {
+			globalLogger.Warning("Label value for deployment " + deployment.Name + " in namespace " + deployment.Namespace + " is malformed. Second value is required to be an integer. Skipping the deployment...")
+			continue
+		}
+
+		if labelBranchName != body.Source.RepoSource.BranchName {
 			globalLogger.Info(fmt.Sprintf("Skipping deployment of %s in namespace %s. Branch mismatch.", deployment.Name, deployment.Namespace))
 			continue
 		}
@@ -205,8 +208,8 @@ func Webhook(w http.ResponseWriter, r *http.Request) {
 				return getErr
 			}
 
-			if len(result.Spec.Template.Spec.Containers) <= labelValueType.ContainerPosition {
-				result.Spec.Template.Spec.Containers[labelValueType.ContainerPosition].Image = body.Images[0]
+			if len(result.Spec.Template.Spec.Containers) <= labelContainerPosition {
+				result.Spec.Template.Spec.Containers[labelContainerPosition].Image = body.Images[0]
 				_, updateErr := kubeSet.AppsV1().Deployments(deployment.Namespace).Update(result)
 
 				return updateErr
