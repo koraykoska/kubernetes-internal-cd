@@ -105,6 +105,11 @@ type ResponseMessage struct {
 	Message string `json:"message"`
 }
 
+type DeploymentLabelValue struct {
+	BranchName        string `json:"branchName"`
+	ContainerPosition int    `json:"containerPosition"`
+}
+
 // GLOBAL VARIABLES
 var hmacSecret string
 var globalLogger *logger.Logger
@@ -170,34 +175,50 @@ func Webhook(w http.ResponseWriter, r *http.Request) {
 	// Deploy new version if possible
 	globalLogger.Info(fmt.Sprintf("Deploying new version of %s on branch %s. Cloud Build ID: %s", body.Source.RepoSource.RepoName, body.Source.RepoSource.BranchName, body.Id))
 
-	deployments, err := kubeSet.AppsV1().Deployments("").List(metav1.ListOptions{LabelSelector: "kube.volkn.cloud/cloud-build-cd-name == " + strings.ToLower(body.Source.RepoSource.RepoName)})
+	labelKey := "kube.volkn.cloud/cloud-build-cd-name_" + strings.ToLower(body.Source.RepoSource.RepoName)
+	deployments, err := kubeSet.AppsV1().Deployments("").List(metav1.ListOptions{LabelSelector: labelKey})
 	if err != nil {
 		panic(err.Error())
 	}
 	globalLogger.Info(fmt.Sprintf("Got %d deployments with the correct cd label", len(deployments.Items)))
 
 	for _, deployment := range deployments.Items {
-		if deployment.Labels["kube.volkn.cloud/cloud-build-cd-name"] == body.Source.RepoSource.RepoName {
-			globalLogger.Info(fmt.Sprintf("Deployment %s in namespace %s is ready to be updated...", deployment.Name, deployment.Namespace))
+		labelValue := deployment.Labels[labelKey]
 
-			retryErr := retry.RetryOnConflict(retry.DefaultRetry, func() error {
-				// Retrieve the latest version of Deployment before attempting update
-				result, getErr := kubeSet.AppsV1().Deployments(deployment.Namespace).Get(deployment.Name, metav1.GetOptions{})
-				if getErr != nil {
-					return getErr
-				}
+		// Convert label value to DeploymentLabelValue
+		var labelValueType DeploymentLabelValue
+		if err = json.Unmarshal([]byte(labelValue), &labelValueType); err != nil {
+			globalLogger.Warning("Label value for deployment " + deployment.Name + " in namespace " + deployment.Namespace + " is malformed. Skipping the deployment...")
+			continue
+		}
+		if labelValueType.BranchName != body.Source.RepoSource.BranchName {
+			globalLogger.Info(fmt.Sprintf("Skipping deployment of %s in namespace %s. Branch mismatch.", deployment.Name, deployment.Namespace))
+			continue
+		}
 
-				result.Spec.Template.Spec.Containers[0].Image = body.Images[0]
+		globalLogger.Info(fmt.Sprintf("Deployment %s in namespace %s is ready to be updated...", deployment.Name, deployment.Namespace))
+
+		retryErr := retry.RetryOnConflict(retry.DefaultRetry, func() error {
+			// Retrieve the latest version of Deployment before attempting update
+			result, getErr := kubeSet.AppsV1().Deployments(deployment.Namespace).Get(deployment.Name, metav1.GetOptions{})
+			if getErr != nil {
+				return getErr
+			}
+
+			if len(result.Spec.Template.Spec.Containers) <= labelValueType.ContainerPosition {
+				result.Spec.Template.Spec.Containers[labelValueType.ContainerPosition].Image = body.Images[0]
 				_, updateErr := kubeSet.AppsV1().Deployments(deployment.Namespace).Update(result)
 
 				return updateErr
-			})
-			if retryErr != nil {
-				globalLogger.Error(fmt.Sprintf("Failure updating deployment %s. Cannot retry.", deployment.Name))
 			}
 
-			globalLogger.Info(fmt.Sprintf("Successfully updated deployment %s with the newest image tag.", deployment.Name))
+			return nil
+		})
+		if retryErr != nil {
+			globalLogger.Error(fmt.Sprintf("Failure updating deployment %s. Cannot retry.", deployment.Name))
 		}
+
+		globalLogger.Info(fmt.Sprintf("Successfully updated deployment %s with the newest image tag.", deployment.Name))
 	}
 }
 
