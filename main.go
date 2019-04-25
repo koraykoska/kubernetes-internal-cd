@@ -6,6 +6,7 @@ import (
 	"crypto/subtle"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"github.com/google/logger"
 	"io/ioutil"
@@ -215,13 +216,15 @@ func Webhook(w http.ResponseWriter, r *http.Request) {
 				return updateErr
 			}
 
-			return nil
+			globalLogger.Warning(fmt.Sprintf("Label %s contains an invalid container position for deployment %s in namespace %s", labelValue, deployment.Name, deployment.Namespace))
+
+			return errors.New("label contains invalid container position")
 		})
 		if retryErr != nil {
-			globalLogger.Error(fmt.Sprintf("Failure updating deployment %s. Cannot retry.", deployment.Name))
+			globalLogger.Error(fmt.Sprintf("Failure updating deployment %s. Cannot retry. --- %s", deployment.Name, retryErr))
+		} else {
+			globalLogger.Info(fmt.Sprintf("Successfully updated deployment %s with the newest image tag.", deployment.Name))
 		}
-
-		globalLogger.Info(fmt.Sprintf("Successfully updated deployment %s with the newest image tag.", deployment.Name))
 	}
 }
 
