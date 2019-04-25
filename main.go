@@ -219,7 +219,7 @@ func Webhook(w http.ResponseWriter, r *http.Request) {
 				return updateErr
 			}
 
-			globalLogger.Info("NOPE!?")
+			globalLogger.Info(fmt.Sprintf("NOPE!? %d %d", len(result.Spec.Template.Spec.Containers), labelContainerPosition))
 
 			return nil
 		})
