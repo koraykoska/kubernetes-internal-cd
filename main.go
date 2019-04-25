@@ -208,12 +208,18 @@ func Webhook(w http.ResponseWriter, r *http.Request) {
 				return getErr
 			}
 
+			globalLogger.Info("WTF!?")
+
 			if len(result.Spec.Template.Spec.Containers) <= labelContainerPosition {
 				result.Spec.Template.Spec.Containers[labelContainerPosition].Image = body.Images[0]
 				_, updateErr := kubeSet.AppsV1().Deployments(deployment.Namespace).Update(result)
 
+				globalLogger.Info("HAHA LOL!?")
+
 				return updateErr
 			}
+
+			globalLogger.Info("NOPE!?")
 
 			return nil
 		})
