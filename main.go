@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/google/logger"
+	"github.com/nlopes/slack"
 	"io/ioutil"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
@@ -109,6 +110,7 @@ type ResponseMessage struct {
 
 // GLOBAL VARIABLES
 var hmacSecret string
+var slackWebhookUrl string
 var globalLogger *logger.Logger
 var kubeSet *kubernetes.Clientset
 
@@ -223,7 +225,16 @@ func Webhook(w http.ResponseWriter, r *http.Request) {
 		if retryErr != nil {
 			globalLogger.Error(fmt.Sprintf("Failure updating deployment %s. Cannot retry. --- %s", deployment.Name, retryErr))
 		} else {
-			globalLogger.Info(fmt.Sprintf("Successfully updated deployment %s with the newest image tag.", deployment.Name))
+			successText := fmt.Sprintf("Successfully updated deployment %s in namespace %s with the newest image tag.", deployment.Name, deployment.Namespace)
+
+			globalLogger.Info(successText)
+
+			// Slack notification
+			slackMsg := slack.WebhookMessage{ Text: successText }
+			err := slack.PostWebhook(slackWebhookUrl, &slackMsg)
+			if err != nil {
+				globalLogger.Warning("Couldn't notify slack for deployment update.")
+			}
 		}
 	}
 }
@@ -235,8 +246,15 @@ func main() {
 	// Get hmac secret
 	hmacSecret = os.Getenv("HMAC_SECRET")
 	if hmacSecret == "" || len(hmacSecret) < 32 {
-		globalLogger.Fatal("HMAC secret empty or too weak. Please change it accordingly.")
-		panic("HMAC secret too weak")
+		globalLogger.Fatal("HMAC_SECRET empty or too weak. Please change it accordingly.")
+		panic("HMAC_SECRET too weak")
+	}
+
+	// Get Slack webhook url, setup slack api
+	slackWebhookUrl = os.Getenv("SLACK_URL")
+	if slackWebhookUrl == "" {
+		globalLogger.Fatal("SLACK_URL not provided.")
+		panic("SLACK_URL not provided")
 	}
 
 	// Setup kube cluster config
