@@ -8,17 +8,18 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/google/logger"
-	"github.com/nlopes/slack"
 	"io/ioutil"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/client-go/kubernetes"
-	"k8s.io/client-go/rest"
-	"k8s.io/client-go/util/retry"
 	"net/http"
 	"os"
 	"strconv"
 	"strings"
+
+	"github.com/google/logger"
+	"github.com/nlopes/slack"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/rest"
+	"k8s.io/client-go/util/retry"
 )
 
 type MessageRepoSource struct {
@@ -177,7 +178,9 @@ func Webhook(w http.ResponseWriter, r *http.Request) {
 	labelKey := "kube.volkn.cloud/cloud-build-cd-name_" + strings.ToLower(body.Source.RepoSource.RepoName)
 	deployments, err := kubeSet.AppsV1().Deployments("").List(metav1.ListOptions{LabelSelector: labelKey})
 	if err != nil {
-		panic(err.Error())
+		globalLogger.Error("Could not get deployments")
+		globalLogger.Error(err)
+		return
 	}
 	globalLogger.Info(fmt.Sprintf("Got %d deployments with the correct cd label", len(deployments.Items)))
 
@@ -230,7 +233,7 @@ func Webhook(w http.ResponseWriter, r *http.Request) {
 			globalLogger.Info(successText)
 
 			// Slack notification
-			slackMsg := slack.WebhookMessage{ Text: successText }
+			slackMsg := slack.WebhookMessage{Text: successText}
 			err := slack.PostWebhook(slackWebhookUrl, &slackMsg)
 			if err != nil {
 				globalLogger.Warning("Couldn't notify slack for deployment update.")
@@ -278,7 +281,7 @@ func main() {
 	globalLogger.Info("Server listening on port " + port)
 
 	http.HandleFunc("/", Webhook)
-	if err := http.ListenAndServe(":" + port, nil); err != nil {
+	if err := http.ListenAndServe(":"+port, nil); err != nil {
 		panic(err)
 	}
 }
