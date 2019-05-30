@@ -176,6 +176,7 @@ func Webhook(w http.ResponseWriter, r *http.Request) {
 	globalLogger.Info(fmt.Sprintf("Deploying new version of %s on branch %s. Cloud Build ID: %s", body.Source.RepoSource.RepoName, body.Source.RepoSource.BranchName, body.Id))
 
 	labelKey := "volkn/cd-name_" + strings.ToLower(body.Source.RepoSource.RepoName)
+
 	deployments, err := kubeSet.AppsV1().Deployments("").List(metav1.ListOptions{LabelSelector: labelKey})
 	if err != nil {
 		globalLogger.Error("Could not get deployments")
@@ -184,6 +185,15 @@ func Webhook(w http.ResponseWriter, r *http.Request) {
 	}
 	globalLogger.Info(fmt.Sprintf("Got %d deployments with the correct cd label", len(deployments.Items)))
 
+	statefulSets, err := kubeSet.AppsV1().StatefulSets("").List(metav1.ListOptions{LabelSelector: labelKey})
+	if err != nil {
+		globalLogger.Error("Could not get stateful sets")
+		globalLogger.Error(err)
+		return
+	}
+	globalLogger.Info(fmt.Sprintf("Got %d stateful sets with the correct cd label", len(statefulSets.Items)))
+
+	// Update deployments
 	for _, deployment := range deployments.Items {
 		labelValue := deployment.Labels[labelKey]
 
@@ -237,6 +247,64 @@ func Webhook(w http.ResponseWriter, r *http.Request) {
 			err := slack.PostWebhook(slackWebhookUrl, &slackMsg)
 			if err != nil {
 				globalLogger.Warning("Couldn't notify slack for deployment update.")
+			}
+		}
+	}
+
+	// Same for stateful sets...
+	for _, statefulSet := range statefulSets.Items {
+		labelValue := statefulSet.Labels[labelKey]
+
+		// Convert label value to DeploymentLabelValue. Currently <branchName>.<containerPosition>
+		labelValues := strings.Split(labelValue, ".")
+		if len(labelValues) != 2 {
+			globalLogger.Warning("Label value for statefulSet " + statefulSet.Name + " in namespace " + statefulSet.Namespace + " is malformed. Exactly two dot separated values are required. Skipping the deployment...")
+			continue
+		}
+		labelBranchName := labelValues[0]
+		labelContainerPosition, err := strconv.Atoi(labelValues[1])
+		if err != nil {
+			globalLogger.Warning("Label value for statefulSet " + statefulSet.Name + " in namespace " + statefulSet.Namespace + " is malformed. Second value is required to be an integer. Skipping the deployment...")
+			continue
+		}
+
+		if labelBranchName != body.Source.RepoSource.BranchName {
+			globalLogger.Info(fmt.Sprintf("Skipping statefulSet of %s in namespace %s. Branch mismatch.", statefulSet.Name, statefulSet.Namespace))
+			continue
+		}
+
+		globalLogger.Info(fmt.Sprintf("StatefulSet %s in namespace %s is ready to be updated...", statefulSet.Name, statefulSet.Namespace))
+
+		retryErr := retry.RetryOnConflict(retry.DefaultRetry, func() error {
+			// Retrieve the latest version of StatefulSet before attempting update
+			result, getErr := kubeSet.AppsV1().StatefulSets(statefulSet.Namespace).Get(statefulSet.Name, metav1.GetOptions{})
+			if getErr != nil {
+				return getErr
+			}
+
+			if len(result.Spec.Template.Spec.Containers) > labelContainerPosition {
+				result.Spec.Template.Spec.Containers[labelContainerPosition].Image = body.Images[0]
+				_, updateErr := kubeSet.AppsV1().StatefulSets(statefulSet.Namespace).Update(result)
+
+				return updateErr
+			}
+
+			globalLogger.Warning(fmt.Sprintf("Label %s contains an invalid container position for statefulSet %s in namespace %s", labelValue, statefulSet.Name, statefulSet.Namespace))
+
+			return errors.New("label contains invalid container position")
+		})
+		if retryErr != nil {
+			globalLogger.Error(fmt.Sprintf("Failure updating statefulSet %s. Cannot retry. --- %s", statefulSet.Name, retryErr))
+		} else {
+			successText := fmt.Sprintf("Successfully updated statefulSet %s in namespace %s with the newest image tag.", statefulSet.Name, statefulSet.Namespace)
+
+			globalLogger.Info(successText)
+
+			// Slack notification
+			slackMsg := slack.WebhookMessage{Text: successText}
+			err := slack.PostWebhook(slackWebhookUrl, &slackMsg)
+			if err != nil {
+				globalLogger.Warning("Couldn't notify slack for statefulSet update.")
 			}
 		}
 	}
