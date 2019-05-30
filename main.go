@@ -175,7 +175,7 @@ func Webhook(w http.ResponseWriter, r *http.Request) {
 	// Deploy new version if possible
 	globalLogger.Info(fmt.Sprintf("Deploying new version of %s on branch %s. Cloud Build ID: %s", body.Source.RepoSource.RepoName, body.Source.RepoSource.BranchName, body.Id))
 
-	labelKey := "kube.volkn.cloud/cloud-build-cd-name_" + strings.ToLower(body.Source.RepoSource.RepoName)
+	labelKey := "volkn/cd-name_" + strings.ToLower(body.Source.RepoSource.RepoName)
 	deployments, err := kubeSet.AppsV1().Deployments("").List(metav1.ListOptions{LabelSelector: labelKey})
 	if err != nil {
 		globalLogger.Error("Could not get deployments")
