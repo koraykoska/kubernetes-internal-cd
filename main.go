@@ -22,86 +22,15 @@ import (
 	"k8s.io/client-go/util/retry"
 )
 
-type MessageRepoSource struct {
-	ProjectId  string `json:"projectId"`
-	RepoName   string `json:"repoName"`
-	BranchName string `json:"branchName"`
-}
-
-type MessageSource struct {
-	RepoSource MessageRepoSource `json:"repoSource"`
-}
-
-type MessageTiming struct {
-	StartTime string `json:"startTime"`
-	EndTime   string `json:"endTime"`
-}
-
-type MessageStep struct {
-	Name       string        `json:"name"`
-	Args       []string      `json:"args"`
-	Timing     MessageTiming `json:"timing"`
-	PullTiming MessageTiming `json:"pullTiming"`
-	Status     string        `json:"status"`
-}
-
-type MessageResultsImage struct {
-	Name       string        `json:"name"`
-	Digest     string        `json:"digest"`
-	PushTiming MessageTiming `json:"pushTiming"`
-}
-
-type MessageResults struct {
-	Images           []MessageResultsImage `json:"images"`
-	BuildStepImages  []string              `json:"buildStepImages"`
-	BuildStepOutputs []string              `json:"buildStepOutputs"`
-}
-
-type MessageArtifacts struct {
-	Images []string `json:"images"`
-}
-
-type MessageResolvedRepoSource struct {
-	ProjectId string `json:"projectId"`
-	RepoName  string `json:"repoName"`
-	CommitSha string `json:"commitSha"`
-}
-
-type MessageSourceProvenance struct {
-	ResolvedRepoSource MessageResolvedRepoSource `json:"resolvedRepoSource"`
-}
-
-type MessageOptions struct {
-	SubstitutionOption string `json:"substitutionOption"`
-	Logging            string `json:"logging"`
-}
-
-type MessageGeneralTiming struct {
-	Build       MessageTiming `json:"BUILD"`
-	FetchSource MessageTiming `json:"FETCHSOURCE"`
-	Push        MessageTiming `json:"PUSH"`
+type MessageGithub struct {
+	Sha        string `json:"sha"`
+	Repository string `json:"repository"`
+	Ref        string `json:"ref"`
 }
 
 type Message struct {
-	Id               string                  `json:"id"`
-	ProjectId        string                  `json:"projectId"`
-	Status           string                  `json:"status"`
-	Source           MessageSource           `json:"source"`
-	Steps            []MessageStep           `json:"steps"`
-	Results          MessageResults          `json:"results"`
-	CreateTime       string                  `json:"createTime"`
-	StartTime        string                  `json:"startTime"`
-	FinishTime       string                  `json:"finishTime"`
-	Timeout          string                  `json:"timeout"`
-	Images           []string                `json:"images"`
-	Artifacts        MessageArtifacts        `json:"artifacts"`
-	LogsBucket       string                  `json:"logsBucket"`
-	SourceProvenance MessageSourceProvenance `json:"sourceProvenance"`
-	BuildTriggerId   string                  `json:"buildTriggerId"`
-	Options          MessageOptions          `json:"options"`
-	LogUrl           string                  `json:"logUrl"`
-	Tags             []string                `json:"tags"`
-	Timing           MessageGeneralTiming    `json:"timing"`
+	Github MessageGithub `json:"github"`
+	Image  string        `json:"image"`
 }
 
 type ResponseMessage struct {
@@ -157,13 +86,8 @@ func Webhook(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if len(body.Images) < 1 || body.Images[0] == "" {
-		http.Error(w, "cannot update without a new image tag", 400)
-		return
-	}
-
 	// Respond as early as possible to the webhook
-	message := ResponseMessage{Success: true, Message: "Sucessfully parsed " + body.Source.RepoSource.RepoName}
+	message := ResponseMessage{Success: true, Message: "Sucessfully parsed " + body.Github.Repository}
 	output, err := json.Marshal(message)
 	if err != nil {
 		http.Error(w, err.Error(), 500)
@@ -173,9 +97,9 @@ func Webhook(w http.ResponseWriter, r *http.Request) {
 	w.Write(output)
 
 	// Deploy new version if possible
-	globalLogger.Info(fmt.Sprintf("Deploying new version of %s on branch %s. Cloud Build ID: %s", body.Source.RepoSource.RepoName, body.Source.RepoSource.BranchName, body.Id))
+	globalLogger.Info(fmt.Sprintf("Deploying new version of %s on branch %s", body.Github.Repository, body.Github.Ref))
 
-	labelKey := "volkn/cd-name_" + strings.ToLower(body.Source.RepoSource.RepoName)
+	labelKey := "volkn/cd-name_" + strings.Replace(strings.ToLower(body.Github.Repository), "/", "_", -1)
 
 	deployments, err := kubeSet.AppsV1().Deployments("").List(metav1.ListOptions{LabelSelector: labelKey})
 	if err != nil {
@@ -210,7 +134,7 @@ func Webhook(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 
-		if labelBranchName != body.Source.RepoSource.BranchName {
+		if labelBranchName != strings.TrimPrefix(body.Github.Ref, "refs/heads/") {
 			globalLogger.Info(fmt.Sprintf("Skipping deployment of %s in namespace %s. Branch mismatch.", deployment.Name, deployment.Namespace))
 			continue
 		}
@@ -225,7 +149,7 @@ func Webhook(w http.ResponseWriter, r *http.Request) {
 			}
 
 			if len(result.Spec.Template.Spec.Containers) > labelContainerPosition {
-				result.Spec.Template.Spec.Containers[labelContainerPosition].Image = body.Images[0]
+				result.Spec.Template.Spec.Containers[labelContainerPosition].Image = fmt.Sprintf("%s:%s", body.Image, body.Github.Sha)
 				_, updateErr := kubeSet.AppsV1().Deployments(deployment.Namespace).Update(result)
 
 				return updateErr
@@ -268,7 +192,7 @@ func Webhook(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 
-		if labelBranchName != body.Source.RepoSource.BranchName {
+		if labelBranchName != strings.TrimPrefix(body.Github.Ref, "refs/heads/") {
 			globalLogger.Info(fmt.Sprintf("Skipping statefulSet of %s in namespace %s. Branch mismatch.", statefulSet.Name, statefulSet.Namespace))
 			continue
 		}
@@ -283,7 +207,7 @@ func Webhook(w http.ResponseWriter, r *http.Request) {
 			}
 
 			if len(result.Spec.Template.Spec.Containers) > labelContainerPosition {
-				result.Spec.Template.Spec.Containers[labelContainerPosition].Image = body.Images[0]
+				result.Spec.Template.Spec.Containers[labelContainerPosition].Image = fmt.Sprintf("%s:%s", body.Image, body.Github.Sha)
 				_, updateErr := kubeSet.AppsV1().StatefulSets(statefulSet.Namespace).Update(result)
 
 				return updateErr
