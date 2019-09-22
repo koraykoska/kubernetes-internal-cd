@@ -239,6 +239,7 @@ func main() {
 	globalLogger = logger.Init("ConsoleLogger", true, false, ioutil.Discard)
 
 	// Get hmac secret
+	// TODO: Change to master based secret and sign repository names to get sub secrets
 	hmacSecret = os.Getenv("HMAC_SECRET")
 	if hmacSecret == "" || len(hmacSecret) < 32 {
 		globalLogger.Fatal("HMAC_SECRET empty or too weak. Please change it accordingly.")
