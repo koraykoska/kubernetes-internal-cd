@@ -1,4 +1,4 @@
-module github.com/Boilertalk/volkn-kube-cd
+module github.com/Boilertalk/kubernetes-internal-cd
 
 go 1.12
 
@@ -17,7 +17,7 @@ require (
 	github.com/json-iterator/go v1.1.6 // indirect
 	github.com/modern-go/concurrent v0.0.0-20180306012644-bacd9c7ef1dd // indirect
 	github.com/modern-go/reflect2 v1.0.1 // indirect
-	github.com/nlopes/slack v0.5.0 // indirect
+	github.com/nlopes/slack v0.5.0
 	github.com/peterbourgon/diskv v2.0.1+incompatible // indirect
 	github.com/pkg/errors v0.8.1 // indirect
 	github.com/spf13/pflag v1.0.3 // indirect

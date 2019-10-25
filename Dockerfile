@@ -2,7 +2,7 @@
 FROM golang:1.12.4-alpine
 
 # add maintainer info
-LABEL maintainer="Koray Koska <koray@volkn.cloud>"
+LABEL maintainer="Koray Koska <koray@koska.at>"
 
 # go env variables
 ENV GO111MODULE on
@@ -11,11 +11,11 @@ ENV GO111MODULE on
 RUN apk add git
 
 # set working directory
-RUN mkdir -p $GOPATH/src/github.com/Boilertalk/volkn-kube-cd
-WORKDIR $GOPATH/src/github.com/Boilertalk/volkn-kube-cd
+RUN mkdir -p $GOPATH/src/github.com/Boilertalk/kubernetes-internal-cd
+WORKDIR $GOPATH/src/github.com/Boilertalk/kubernetes-internal-cd
 
 # copy everything
-COPY . $GOPATH/src/github.com/Boilertalk/volkn-kube-cd/
+COPY . $GOPATH/src/github.com/Boilertalk/kubernetes-internal-cd/
 
 # download all dependencies
 RUN go get -d -v ./...
@@ -24,4 +24,4 @@ RUN go get -d -v ./...
 RUN go install -v ./...
 
 # run server
-CMD ["volkn-kube-cd"]
+CMD ["kubernetes-internal-cd"]

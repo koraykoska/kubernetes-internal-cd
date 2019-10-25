@@ -8,28 +8,15 @@ on:
 jobs:
 
   build:
- 
+
     runs-on: ubuntu-latest
- 
+
     steps:
     - uses: actions/checkout@v1
-    - name: Build the Docker image
-      env:
-        IMAGE_URI: ${{ secrets.IMAGE_URI }}
-      run: docker build . --file Dockerfile --tag $IMAGE_URI:$GITHUB_SHA
-    - name: ECR Login & Push
-      uses: actions/aws/cli@master
-      env:
-        AWS_DEFAULT_REGION: us-east-2
-        AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
-        AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-        IMAGE_URI: ${{ secrets.IMAGE_URI }}
+    - name: Publish to Registry
+      uses: elgohr/Publish-Docker-Github-Action@2.7
       with:
-        entrypoint: /bin/bash
-        args: '-c "aws ecr get-login --no-include-email | sh && docker push $IMAGE_URI"'
-    - name: Secure Actions Webhook
-      uses: Ybrin/secure-actions-webhook@0.1.2
-      env:
-        REQUEST_URI: https://kube-cd.volkncloud.com/
-        HMAC_SECRET: ${{ secrets.HMAC_SECRET }}
-        REQUEST_DATA: '{ "github": ${{ toJson(github)}}, "image": "${{ secrets.IMAGE_URI }}" }'
+        name: boilertalk/kubernetes-internal-cd/main
+        username: github
+        password: ${{ secrets.GITHUB_TOKEN }}
+        registry: docker.pkg.github.com

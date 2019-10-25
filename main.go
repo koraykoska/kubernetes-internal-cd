@@ -39,19 +39,23 @@ type ResponseMessage struct {
 }
 
 // GLOBAL VARIABLES
-var hmacSecret string
 var slackWebhookUrl string
 var globalLogger *logger.Logger
 var kubeSet *kubernetes.Clientset
 
 /// HMAC signature generation
-func CreateSignature(input []byte, key string) string {
-	signatureKey := []byte(key)
+func CreateSignature(input []byte, key []byte) []byte {
+	// signatureKey := []byte(key)
 
-	h := hmac.New(sha1.New, signatureKey)
+	h := hmac.New(sha1.New, key)
 	h.Write(input)
 
-	return "sha1=" + hex.EncodeToString(h.Sum(nil))
+	return h.Sum(nil)
+}
+
+/// Create a signature hash "sha1=..." from the given signature
+func CreateSignatureHash(signature []byte) string {
+	return "sha1=" + hex.EncodeToString(signature)
 }
 
 func Webhook(w http.ResponseWriter, r *http.Request) {
@@ -71,18 +75,31 @@ func Webhook(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Check hmac signature
-	signature := CreateSignature(bytes, hmacSecret)
-	if subtle.ConstantTimeCompare([]byte(r.Header.Get("x-hub-signature")), []byte(signature)) != 1 {
-		globalLogger.Warning("Signature verification failed for host " + r.RemoteAddr)
-
-		http.Error(w, "hmac signature verification failed", 401)
-		return
-	}
-
+	// Decode body
 	var body Message
 	if err = json.Unmarshal(bytes, &body); err != nil {
 		http.Error(w, err.Error(), 500)
+		return
+	}
+
+	// Get hmac master key
+	secret, err := kubeSet.CoreV1().Secrets(os.Getenv("SECRET_NAMESPACE")).Get(os.Getenv("SECRET_NAME"), metav1.GetOptions{})
+	if err != nil {
+		globalLogger.Error("Could not get secret")
+		globalLogger.Error(err)
+		return
+	}
+	hmacSecret := CreateSignature([]byte(body.Github.Repository), secret.Data["master_key"])
+	hmacSecretOld := CreateSignature([]byte(body.Github.Repository), secret.Data["master_key_old"])
+
+	// Check hmac signature
+	signature := CreateSignatureHash(CreateSignature(bytes, hmacSecret))
+	signatureOld := CreateSignatureHash(CreateSignature(bytes, hmacSecretOld))
+	if subtle.ConstantTimeCompare([]byte(r.Header.Get("x-hub-signature")), []byte(signature)) != 1 &&
+		subtle.ConstantTimeCompare([]byte(r.Header.Get("x-hub-signature")), []byte(signatureOld)) != 1 {
+		globalLogger.Warning("Signature verification failed for host " + r.RemoteAddr)
+
+		http.Error(w, "hmac signature verification failed", 401)
 		return
 	}
 
@@ -99,7 +116,7 @@ func Webhook(w http.ResponseWriter, r *http.Request) {
 	// Deploy new version if possible
 	globalLogger.Info(fmt.Sprintf("Deploying new version of %s on branch %s", body.Github.Repository, body.Github.Ref))
 
-	labelKey := "volkn/cd-name_" + strings.Replace(strings.ToLower(body.Github.Repository), "/", "_", -1)
+	labelKey := "cd/name_" + strings.Replace(strings.ToLower(body.Github.Repository), "/", "_", -1)
 
 	deployments, err := kubeSet.AppsV1().Deployments("").List(metav1.ListOptions{LabelSelector: labelKey})
 	if err != nil {
@@ -237,14 +254,6 @@ func Webhook(w http.ResponseWriter, r *http.Request) {
 func main() {
 	// Setup logger
 	globalLogger = logger.Init("ConsoleLogger", true, false, ioutil.Discard)
-
-	// Get hmac secret
-	// TODO: Change to master based secret and sign repository names to get sub secrets
-	hmacSecret = os.Getenv("HMAC_SECRET")
-	if hmacSecret == "" || len(hmacSecret) < 32 {
-		globalLogger.Fatal("HMAC_SECRET empty or too weak. Please change it accordingly.")
-		panic("HMAC_SECRET too weak")
-	}
 
 	// Get Slack webhook url, setup slack api
 	slackWebhookUrl = os.Getenv("SLACK_URL")
