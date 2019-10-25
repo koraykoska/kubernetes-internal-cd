@@ -116,7 +116,7 @@ func Webhook(w http.ResponseWriter, r *http.Request) {
 	// Deploy new version if possible
 	globalLogger.Info(fmt.Sprintf("Deploying new version of %s on branch %s", body.Github.Repository, body.Github.Ref))
 
-	labelKey := "cd/name_" + strings.Replace(strings.ToLower(body.Github.Repository), "/", "_", -1)
+	labelKey := "ki-cd/name_" + strings.Replace(strings.ToLower(body.Github.Repository), "/", "_", -1)
 
 	deployments, err := kubeSet.AppsV1().Deployments("").List(metav1.ListOptions{LabelSelector: labelKey})
 	if err != nil {
