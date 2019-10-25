@@ -16,7 +16,7 @@ jobs:
     - name: Publish to Registry
       uses: elgohr/Publish-Docker-Github-Action@2.7
       with:
-        name: boilertalk/kubernetes-internal-cd/kubernetes-internal-cd
+        name: boilertalk/kubernetes-internal-cd/kubernetes-internal-cd:$GITHUB_SHA
         username: github
         password: ${{ secrets.GITHUB_TOKEN }}
         registry: docker.pkg.github.com
