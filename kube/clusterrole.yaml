@@ -11,3 +11,8 @@ rules:
       - statefulsets
     verbs:
       - '*'
+  - apiGroups: [""]
+    resources:
+      - secrets
+    verbs:
+      - 'get'
