@@ -97,7 +97,7 @@ func Webhook(w http.ResponseWriter, r *http.Request) {
 	signatureOld := CreateSignatureHash(CreateSignature(bytes, []byte(hmacSecretOld)))
 	if subtle.ConstantTimeCompare([]byte(r.Header.Get("x-hub-signature")), []byte(signature)) != 1 &&
 		subtle.ConstantTimeCompare([]byte(r.Header.Get("x-hub-signature")), []byte(signatureOld)) != 1 {
-		globalLogger.Warning("Signature verification failed for host " + r.RemoteAddr)
+		globalLogger.Warning(fmt.Sprintf("Signature verification failed for host %s and repository %s", r.RemoteAddr, body.Github.Repository))
 
 		http.Error(w, "hmac signature verification failed", 401)
 		return
