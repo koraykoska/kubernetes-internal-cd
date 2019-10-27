@@ -29,8 +29,8 @@ type MessageGithub struct {
 }
 
 type Message struct {
-	Github MessageGithub `json:"github"`
-	Image  string        `json:"image"`
+	Github MessageGithub `json:"data.github"`
+	Image  string        `json:"data.image"`
 }
 
 type ResponseMessage struct {
