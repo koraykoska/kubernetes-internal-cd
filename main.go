@@ -28,9 +28,13 @@ type MessageGithub struct {
 	Ref        string `json:"ref"`
 }
 
+type MessageData struct {
+	Github MessageGithub `json:"github"`
+	Image  string        `json:"image"`
+}
+
 type Message struct {
-	Github MessageGithub `json:"data.github"`
-	Image  string        `json:"data.image"`
+	Data MessageData `json:"data"`
 }
 
 type ResponseMessage struct {
@@ -83,10 +87,10 @@ func Webhook(w http.ResponseWriter, r *http.Request) {
 	}
 	// Debug logging
 	globalLogger.Warning(string(bytes))
-	globalLogger.Warning(string(body.Github.Sha))
-	globalLogger.Warning(string(body.Github.Repository))
-	globalLogger.Warning(string(body.Github.Ref))
-	globalLogger.Warning(string(body.Image))
+	globalLogger.Warning(string(body.Data.Github.Sha))
+	globalLogger.Warning(string(body.Data.Github.Repository))
+	globalLogger.Warning(string(body.Data.Github.Ref))
+	globalLogger.Warning(string(body.Data.Image))
 
 	// Get hmac master key
 	secret, err := kubeSet.CoreV1().Secrets(os.Getenv("SECRET_NAMESPACE")).Get(os.Getenv("SECRET_NAME"), metav1.GetOptions{})
@@ -95,22 +99,22 @@ func Webhook(w http.ResponseWriter, r *http.Request) {
 		globalLogger.Error(err)
 		return
 	}
-	hmacSecret := hex.EncodeToString(CreateSignature([]byte(body.Github.Repository), secret.Data["master_key"]))
-	hmacSecretOld := hex.EncodeToString(CreateSignature([]byte(body.Github.Repository), secret.Data["master_key_old"]))
+	hmacSecret := hex.EncodeToString(CreateSignature([]byte(body.Data.Github.Repository), secret.Data["master_key"]))
+	hmacSecretOld := hex.EncodeToString(CreateSignature([]byte(body.Data.Github.Repository), secret.Data["master_key_old"]))
 
 	// Check hmac signature
 	signature := CreateSignatureHash(CreateSignature(bytes, []byte(hmacSecret)))
 	signatureOld := CreateSignatureHash(CreateSignature(bytes, []byte(hmacSecretOld)))
 	if subtle.ConstantTimeCompare([]byte(r.Header.Get("x-hub-signature")), []byte(signature)) != 1 &&
 		subtle.ConstantTimeCompare([]byte(r.Header.Get("x-hub-signature")), []byte(signatureOld)) != 1 {
-		globalLogger.Warning(fmt.Sprintf("Signature verification failed for host %s and repository %s", r.RemoteAddr, body.Github.Repository))
+		globalLogger.Warning(fmt.Sprintf("Signature verification failed for host %s and repository %s", r.RemoteAddr, body.Data.Github.Repository))
 
 		http.Error(w, "hmac signature verification failed", 401)
 		return
 	}
 
 	// Respond as early as possible to the webhook
-	message := ResponseMessage{Success: true, Message: "Sucessfully parsed " + body.Github.Repository}
+	message := ResponseMessage{Success: true, Message: "Sucessfully parsed " + body.Data.Github.Repository}
 	output, err := json.Marshal(message)
 	if err != nil {
 		http.Error(w, err.Error(), 500)
@@ -120,9 +124,9 @@ func Webhook(w http.ResponseWriter, r *http.Request) {
 	w.Write(output)
 
 	// Deploy new version if possible
-	globalLogger.Info(fmt.Sprintf("Deploying new version of %s on branch %s", body.Github.Repository, body.Github.Ref))
+	globalLogger.Info(fmt.Sprintf("Deploying new version of %s on branch %s", body.Data.Github.Repository, body.Data.Github.Ref))
 
-	labelKey := "ki-cd/" + strings.Replace(strings.ToLower(body.Github.Repository), "/", "_", -1)
+	labelKey := "ki-cd/" + strings.Replace(strings.ToLower(body.Data.Github.Repository), "/", "_", -1)
 
 	deployments, err := kubeSet.AppsV1().Deployments("").List(metav1.ListOptions{LabelSelector: labelKey})
 	if err != nil {
@@ -157,7 +161,7 @@ func Webhook(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 
-		if labelBranchName != strings.TrimPrefix(body.Github.Ref, "refs/heads/") {
+		if labelBranchName != strings.TrimPrefix(body.Data.Github.Ref, "refs/heads/") {
 			globalLogger.Info(fmt.Sprintf("Skipping deployment of %s in namespace %s. Branch mismatch.", deployment.Name, deployment.Namespace))
 			continue
 		}
@@ -172,7 +176,7 @@ func Webhook(w http.ResponseWriter, r *http.Request) {
 			}
 
 			if len(result.Spec.Template.Spec.Containers) > labelContainerPosition {
-				result.Spec.Template.Spec.Containers[labelContainerPosition].Image = fmt.Sprintf("%s:%s", body.Image, body.Github.Sha)
+				result.Spec.Template.Spec.Containers[labelContainerPosition].Image = fmt.Sprintf("%s:%s", body.Data.Image, body.Data.Github.Sha)
 				_, updateErr := kubeSet.AppsV1().Deployments(deployment.Namespace).Update(result)
 
 				return updateErr
@@ -215,7 +219,7 @@ func Webhook(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 
-		if labelBranchName != strings.TrimPrefix(body.Github.Ref, "refs/heads/") {
+		if labelBranchName != strings.TrimPrefix(body.Data.Github.Ref, "refs/heads/") {
 			globalLogger.Info(fmt.Sprintf("Skipping statefulSet of %s in namespace %s. Branch mismatch.", statefulSet.Name, statefulSet.Namespace))
 			continue
 		}
@@ -230,7 +234,7 @@ func Webhook(w http.ResponseWriter, r *http.Request) {
 			}
 
 			if len(result.Spec.Template.Spec.Containers) > labelContainerPosition {
-				result.Spec.Template.Spec.Containers[labelContainerPosition].Image = fmt.Sprintf("%s:%s", body.Image, body.Github.Sha)
+				result.Spec.Template.Spec.Containers[labelContainerPosition].Image = fmt.Sprintf("%s:%s", body.Data.Image, body.Data.Github.Sha)
 				_, updateErr := kubeSet.AppsV1().StatefulSets(statefulSet.Namespace).Update(result)
 
 				return updateErr
