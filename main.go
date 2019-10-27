@@ -81,6 +81,12 @@ func Webhook(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), 500)
 		return
 	}
+	// Debug logging
+	globalLogger.Warning(string(bytes))
+	globalLogger.Warning(string(body.Github.Sha))
+	globalLogger.Warning(string(body.Github.Repository))
+	globalLogger.Warning(string(body.Github.Ref))
+	globalLogger.Warning(string(body.Image))
 
 	// Get hmac master key
 	secret, err := kubeSet.CoreV1().Secrets(os.Getenv("SECRET_NAMESPACE")).Get(os.Getenv("SECRET_NAME"), metav1.GetOptions{})
