@@ -95,6 +95,7 @@ func Webhook(w http.ResponseWriter, r *http.Request) {
 	}
 	globalLogger.Warning(string(secret.Data["master_key"]))
 	globalLogger.Warning(string(secret.Data["master_key_old"]))
+	globalLogger.Warning(hex.EncodeToString(CreateSignature([]byte(body.Data.Github.Repository), secret.Data["master_key"])))
 	hmacSecret := hex.EncodeToString(CreateSignature([]byte(body.Data.Github.Repository), secret.Data["master_key"]))
 	hmacSecretOld := hex.EncodeToString(CreateSignature([]byte(body.Data.Github.Repository), secret.Data["master_key_old"]))
 
